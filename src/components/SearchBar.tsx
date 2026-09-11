@@ -1,35 +1,43 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Search, X, Loader2, Sparkles, ArrowRight, Languages } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { WordSuggestion, SuggestionResponse } from "@/types/dictionary";
-import { containsVietnameseDiacritics } from "@/lib/vietnameseLexicon";
+import { WordSuggestion, SuggestionResponse, DictionaryEntry } from "@/types/dictionary";
+import { containsVietnameseDiacritics, VIETNAMESE_LEXICON } from "@/lib/vietnameseLexicon";
 
 interface SearchBarProps {
   onSearch: (word: string) => void;
   onSelectSuggestion?: (suggestion: WordSuggestion) => void;
   isLoading?: boolean;
   initialWord?: string;
+  currentEntry?: DictionaryEntry | null;
 }
 
-const SAMPLE_WORDS_VI = [
+const DEFAULT_SIMILAR_WORDS_VI = [
   "hợp tác",
+  "cộng tác",
+  "phối hợp",
   "điểm nghẽn",
-  "tính khả thi",
+  "nút thắt",
   "ủy quyền",
-  "ngân sách",
+  "giao việc",
+  "khả thi",
   "thương lượng",
 ];
 
-const SAMPLE_WORDS_EN = [
-  "benchmark",
-  "delegate",
+const DEFAULT_SIMILAR_WORDS_EN = [
   "synergy",
+  "collaboration",
+  "cooperation",
+  "benchmark",
+  "standard",
+  "delegate",
+  "assign",
   "bottleneck",
+  "obstacle",
   "feasibility",
-  "stakeholder",
 ];
 
 export const SearchBar: React.FC<SearchBarProps> = ({
@@ -37,14 +45,14 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   onSelectSuggestion,
   isLoading = false,
   initialWord = "",
+  currentEntry = null,
 }) => {
   const [query, setQuery] = useState(initialWord);
   const [suggestions, setSuggestions] = useState<WordSuggestion[]>([]);
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
-  const [isVietnameseInput, setIsVietnameseInput] = useState(false);
-  const [chipTab, setChipTab] = useState<"vi" | "en">("vi");
+  const [langMode, setLangMode] = useState<"en" | "vi">("en");
 
   const containerRef = useRef<HTMLDivElement>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -53,6 +61,9 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   useEffect(() => {
     if (initialWord) {
       setQuery(initialWord);
+      if (containsVietnameseDiacritics(initialWord)) {
+        setLangMode("vi");
+      }
     }
   }, [initialWord]);
 
@@ -86,7 +97,9 @@ export const SearchBar: React.FC<SearchBarProps> = ({
       if (res.ok) {
         const data: SuggestionResponse = await res.json();
         setSuggestions(data.suggestions || []);
-        setIsVietnameseInput(data.isVietnamese);
+        if (data.isVietnamese) {
+          setLangMode("vi");
+        }
         setShowDropdown((data.suggestions || []).length > 0);
         setSelectedIndex(-1);
       }
@@ -102,8 +115,10 @@ export const SearchBar: React.FC<SearchBarProps> = ({
     const value = e.target.value;
     setQuery(value);
 
-    // Quick regex detection for immediate UI response
-    setIsVietnameseInput(containsVietnameseDiacritics(value));
+    // Quick detection: if typing with Vietnamese accents, auto-switch to vi mode
+    if (containsVietnameseDiacritics(value)) {
+      setLangMode("vi");
+    }
 
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
@@ -163,7 +178,10 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 
   const handleChipClick = (word: string) => {
     setQuery(word);
-    setIsVietnameseInput(containsVietnameseDiacritics(word));
+    if (containsVietnameseDiacritics(word)) {
+      setLangMode("vi");
+    }
+    setShowDropdown(false);
     onSearch(word);
   };
 
@@ -172,6 +190,50 @@ export const SearchBar: React.FC<SearchBarProps> = ({
     setSuggestions([]);
     setShowDropdown(false);
   };
+
+  // Determine list of similar / synonym words based on currentEntry and langMode
+  const similarWords = useMemo(() => {
+    if (langMode === "en") {
+      if (currentEntry) {
+        const set = new Set<string>();
+        currentEntry.synonyms?.forEach((s) => set.add(s.trim()));
+        currentEntry.meanings?.forEach((m) => {
+          m.synonyms?.forEach((s) => set.add(s.trim()));
+          m.definitions?.forEach((d) => d.synonyms?.forEach((s) => set.add(s.trim())));
+        });
+        const list = Array.from(set).filter(
+          (w) => Boolean(w) && w.toLowerCase() !== currentEntry.word.toLowerCase()
+        );
+        if (list.length > 0) {
+          return list.slice(0, 8);
+        }
+      }
+      return DEFAULT_SIMILAR_WORDS_EN;
+    } else {
+      // Vietnamese mode
+      if (currentEntry) {
+        const lower = currentEntry.word.toLowerCase();
+        // Check lexicon for this word
+        for (const lex of VIETNAMESE_LEXICON) {
+          if (lex.suggestions.some((s) => s.word.toLowerCase() === lower)) {
+            return lex.keywords;
+          }
+        }
+        if (currentEntry.translationVi) {
+          const transLower = currentEntry.translationVi.toLowerCase();
+          for (const lex of VIETNAMESE_LEXICON) {
+            if (
+              lex.vietnamese.toLowerCase().includes(transLower) ||
+              transLower.includes(lex.vietnamese.toLowerCase())
+            ) {
+              return lex.keywords;
+            }
+          }
+        }
+      }
+      return DEFAULT_SIMILAR_WORDS_VI;
+    }
+  }, [currentEntry, langMode]);
 
   return (
     <div ref={containerRef} className="w-full max-w-2xl mx-auto relative">
@@ -194,28 +256,55 @@ export const SearchBar: React.FC<SearchBarProps> = ({
             onFocus={() => {
               if (suggestions.length > 0) setShowDropdown(true);
             }}
-            placeholder="Tìm Tiếng Việt hoặc Tiếng Anh (vd: hợp tác, bottleneck, ủy quyền)..."
-            className="pl-12 pr-32 h-14 text-base sm:text-lg rounded-2xl border-slate-300 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md shadow-lg shadow-slate-200/50 dark:shadow-none focus:ring-4 focus:ring-indigo-500/15 focus:border-indigo-500 transition-all"
+            placeholder={
+              langMode === "vi"
+                ? "Tìm từ tiếng Việt"
+                : "Search English word"
+            }
+            className="pl-12 pr-44 sm:pr-48 h-14 text-base sm:text-lg rounded-2xl border-slate-300 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md shadow-lg shadow-slate-200/50 dark:shadow-none focus:ring-4 focus:ring-indigo-500/15 focus:border-indigo-500 transition-all"
             disabled={isLoading}
             autoFocus
           />
 
-          {/* Right controls: Language badge, clear, and submit */}
-          <div className="absolute right-2.5 flex items-center gap-1.5 z-10">
-            {query.trim() && (
-              <div
-                className="hidden sm:inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
-                title={isVietnameseInput ? "Đang nhận diện Tiếng Việt" : "Đang nhận diện Tiếng Anh"}
+          {/* Right controls: Language Toggle (EN/VN), Clear, and Submit */}
+          <div className="absolute right-2 sm:right-2.5 flex items-center gap-1 sm:gap-1.5 z-10">
+            {/* Toggle EN-VN inside search box */}
+            <div
+              className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl border border-slate-200/80 dark:border-slate-700 select-none shadow-xs"
+              role="group"
+              aria-label="Language Mode Toggle"
+            >
+              <button
+                type="button"
+                onClick={() => setLangMode("en")}
+                className={`px-2 py-0.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  langMode === "en"
+                    ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-xs font-bold"
+                    : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                }`}
+                title="Tra cứu Tiếng Anh (English)"
               >
-                <span>{isVietnameseInput ? "🇻🇳 Tiếng Việt" : "🇬🇧 English"}</span>
-              </div>
-            )}
+                EN
+              </button>
+              <button
+                type="button"
+                onClick={() => setLangMode("vi")}
+                className={`px-2 py-0.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  langMode === "vi"
+                    ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-xs font-bold"
+                    : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                }`}
+                title="Tra cứu Tiếng Việt"
+              >
+                VN
+              </button>
+            </div>
 
             {query && (
               <button
                 type="button"
                 onClick={handleClear}
-                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors rounded-lg"
+                className="p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors rounded-lg cursor-pointer"
                 title="Xóa tìm kiếm"
               >
                 <X className="w-4 h-4" />
@@ -225,7 +314,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
             <Button
               type="submit"
               disabled={!query.trim() || isLoading}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-4 h-10 font-medium transition-all shadow-md shadow-indigo-500/20"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-3 sm:px-4 h-9 sm:h-10 text-xs sm:text-sm font-medium transition-all shadow-md shadow-indigo-500/20"
             >
               Search
             </Button>
@@ -239,7 +328,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
           <div className="px-4 py-2 bg-indigo-50/70 dark:bg-slate-800/60 border-b border-indigo-100/60 dark:border-slate-800 flex items-center justify-between text-xs text-indigo-700 dark:text-indigo-300 font-semibold">
             <span className="flex items-center gap-1.5">
               <Languages className="w-3.5 h-3.5" />
-              {isVietnameseInput
+              {langMode === "vi"
                 ? "Gợi ý từ khóa tiếng Anh tương ứng:"
                 : "Gợi ý từ vựng liên quan:"}
             </span>
@@ -297,39 +386,20 @@ export const SearchBar: React.FC<SearchBarProps> = ({
         </div>
       )}
 
-      {/* Popular Chips with Language Switcher */}
-      <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs">
-        <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-full mr-1">
-          <button
-            type="button"
-            onClick={() => setChipTab("vi")}
-            className={`px-2.5 py-0.5 rounded-full transition-all text-xs font-medium cursor-pointer ${
-              chipTab === "vi"
-                ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm"
-                : "text-slate-500 hover:text-slate-800 dark:text-slate-400"
-            }`}
-          >
-            🇻🇳 Tiếng Việt
-          </button>
-          <button
-            type="button"
-            onClick={() => setChipTab("en")}
-            className={`px-2.5 py-0.5 rounded-full transition-all text-xs font-medium cursor-pointer ${
-              chipTab === "en"
-                ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm"
-                : "text-slate-500 hover:text-slate-800 dark:text-slate-400"
-            }`}
-          >
-            🇬🇧 English
-          </button>
+      {/* Similar Words / Synonyms List */}
+      <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs animate-in fade-in-50 duration-200">
+        <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-medium select-none mr-1">
+          <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+          <span>Từ tương tự hoặc đồng nghĩa:</span>
         </div>
 
-        {(chipTab === "vi" ? SAMPLE_WORDS_VI : SAMPLE_WORDS_EN).map((word) => (
+        {similarWords.map((word) => (
           <button
             key={word}
+            type="button"
             onClick={() => handleChipClick(word)}
             disabled={isLoading}
-            className="px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-950/60 dark:hover:text-indigo-300 transition-all cursor-pointer border border-transparent hover:border-indigo-200 dark:hover:border-indigo-800"
+            className="px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-950/60 dark:hover:text-indigo-300 transition-all cursor-pointer border border-transparent hover:border-indigo-200 dark:hover:border-indigo-800 font-medium active:scale-95"
           >
             {word}
           </button>

@@ -17,7 +17,6 @@ import {
   Calendar,
   Layers,
   ArrowRight,
-  Split,
 } from "lucide-react";
 import { DictionaryEntry } from "@/types/dictionary";
 import { speechService } from "@/lib/speech";
@@ -277,22 +276,6 @@ export const Flashcard: React.FC<FlashcardProps> = ({
                   </p>
                 </div>
               </div>
-
-              {/* Bilingual Mode Toggle Button */}
-              <button
-                type="button"
-                onClick={() => setIsBilingualMode(!isBilingualMode)}
-                className={`text-xs px-3 py-1.5 rounded-xl border font-semibold flex items-center gap-1.5 transition-all cursor-pointer flex-shrink-0 ${
-                  isBilingualMode
-                    ? "bg-indigo-600 text-white border-transparent shadow-sm shadow-indigo-500/20"
-                    : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-300"
-                }`}
-                title="Bật/Tắt chế độ hiển thị song ngữ Anh - Việt"
-              >
-                <Split className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Song ngữ</span>
-                <span>{isBilingualMode ? "Bật" : "Tắt"}</span>
-              </button>
             </div>
           )}
 

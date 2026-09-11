@@ -182,6 +182,7 @@ export default function HomePage() {
                 onSearch={handleSearch}
                 isLoading={isLoading}
                 initialWord={searchedWord}
+                currentEntry={currentEntry}
               />
             </div>
 

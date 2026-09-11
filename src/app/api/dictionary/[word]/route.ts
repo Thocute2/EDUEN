@@ -71,18 +71,15 @@ async function getVietnameseWordTranslation(word: string): Promise<string> {
   // 2. Fetch from Google Translate free endpoint
   try {
     const res = await fetch(
-      `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=vi&dt=t&q=${encodeURIComponent(
+      `https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=en&tl=vi&q=${encodeURIComponent(
         word
       )}`,
-      { headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" } }
+      { headers: { Accept: "application/json" } }
     );
     if (res.ok) {
       const data = await res.json();
-      if (Array.isArray(data) && Array.isArray(data[0])) {
-        const translated = data[0]
-          .map((s: unknown) => (Array.isArray(s) ? s[0] || "" : ""))
-          .join("");
-        if (translated) return translated;
+      if (Array.isArray(data) && typeof data[0] === "string") {
+        return data[0];
       }
     }
   } catch {
